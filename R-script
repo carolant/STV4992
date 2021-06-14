@@ -640,7 +640,6 @@ stargazer(tfe_pred2, type = "text",
 # to the maximum. (This will be plotted). 
 xrange <- seq(min(data3$finance2, na.rm = T), max(data3$finance2, na.rm = T), lenght.out = 564)
 
-names(coefficients(tfe_pred2))
 
 # Creating a scenario which illustrates the effect of outsourcing accounting, audits and judicial 
 # services in small central administrative agencies (i.e., with less than 220 employees).
@@ -692,7 +691,7 @@ ggplot(small,
   labs(x = "", 
        title = "Small agencies",
        y = "Predicted running costs",
-       caption = "Figure 11: Predicted running costs for small agencies.")
+       caption = "Figure 12: Predicted running costs for small agencies.")
 
 # Figure 13: Illustrating the predicted running costs when large agencies outsource
 # accounting, audits and judicial services. 
@@ -856,7 +855,8 @@ outlier <- lm(driftsutgifter2~
             as.factor(Virksomhet_id)+
             as.factor(År),
           data5)
-
+          
+# Clustering the standard errors by agency
 outlier$clusteredVCOV <- cluster.vcov(outlier,
                                   cluster = data5$Virksomhet_id)
 
