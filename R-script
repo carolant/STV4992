@@ -1,1 +1,880 @@
-fff
+
+#########################
+###                   ###
+###   Master thesis   ###
+###     STV4992       ###
+###                   ###
+###     R-script      ###
+###                   ###
+#########################
+
+# Setting a working directory
+setwd("C:/Users/carol/Documents/Masteroppgave/") 
+
+# Turning off scientific notation
+options(scipen =999)
+
+# Loading necessary packages
+library(tidyverse)
+library(readxl)
+library(multiwayvcov)
+library(plm)
+library(stargazer)
+library(car)
+
+
+# Importing the national accounts dataset
+dta <- read.csv2("~/Masteroppgave/statsregnskapet_full_historikk.csv")
+
+# Importing a dataset containing the number of employees and 
+# control variables
+ansatte <- read_excel("Årsverk.xlsx")
+
+
+################################################
+####                                        ####
+####   Preparing the dataset for analysis   ####
+####                                        ####
+################################################
+
+# Subsetting the dataset to only include central administrative agencies, 
+# in the time period 2014-2020 and account group 5-7 
+dta2 <- dta %>%
+  filter(År >= 2014, År <= 2020, Kontogruppe_id == 50| 
+            Kontogruppe_id == 51|Kontogruppe_id == 52| Kontogruppe_id == 59| Kontogruppe_id == 64| 
+            Kontogruppe_id == 65|Kontogruppe_id == 67| Kontogruppe_id == 68| Kontogruppe_id == 71,
+          Virksomhet_id == 972417920|Virksomhet_id == 872417842|Virksomhet_id == 912660680|
+            Virksomhet_id == 972417866|Virksomhet_id == 972417882|Virksomhet_id == 972417823|
+            Virksomhet_id == 983544622|Virksomhet_id == 971277882| Virksomhet_id == 974760746|
+            Virksomhet_id == 867668292|Virksomhet_id == 	983887406| Virksomhet_id == 972417831|
+            Virksomhet_id == 970018131| Virksomhet_id == 972417874| Virksomhet_id == 977161630|
+            Virksomhet_id == 970205039| Virksomhet_id == 972417904| Virksomhet_id == 972417777|
+            Virksomhet_id == 911830868| Virksomhet_id == 971032081| Virksomhet_id == 986128433|
+            Virksomhet_id == 999601391| Virksomhet_id == 974760886| Virksomhet_id == 920440754|
+            Virksomhet_id == 918929673| Virksomhet_id == 874761192| Virksomhet_id ==	985165262|
+            Virksomhet_id == 986028307| Virksomhet_id == 889640782| Virksomhet_id == 971527765|
+            Virksomhet_id == 974761467| Virksomhet_id == 974761424| Virksomhet_id == 991825827|
+            Virksomhet_id == 974760223| Virksomhet_id == 915933149| Virksomhet_id == 986252932|
+            Virksomhet_id == 867668292| Virksomhet_id == 840747972| Virksomhet_id == 983744516| 
+            Virksomhet_id == 987879696| Virksomhet_id == 916810962| Virksomhet_id == 974788985|
+            Virksomhet_id == 974761114| Virksomhet_id == 974778998| Virksomhet_id == 981544315|
+            Virksomhet_id == 985399077| Virksomhet_id == 985042667| Virksomhet_id == 970205039|
+            Virksomhet_id == 892211442| Virksomhet_id == 971527412| Virksomhet_id == 984936923|
+            Virksomhet_id == 971526157| Virksomhet_id == 974760819| Virksomhet_id == 986074465|
+            Virksomhet_id == 974761076| Virksomhet_id == 915429785| Virksomhet_id == 974761394|
+            Virksomhet_id == 979363974| Virksomhet_id ==	974761122| Virksomhet_id == 971526920|
+            Virksomhet_id == 880455702| Virksomhet_id == 942114184| Virksomhet_id == 971040238|
+            Virksomhet_id == 974760983| Virksomhet_id == 916132727| Virksomhet_id == 974446871|
+            Virksomhet_id == 870917732| Virksomhet_id == 986174613| Virksomhet_id == 974761262|
+            Virksomhet_id == 971203420| Virksomhet_id == 974761246| Virksomhet_id == 917928010|
+            Virksomhet_id == 982391490| Virksomhet_id == 874783242| Virksomhet_id == 974761211|
+            Virksomhet_id == 974760282| Virksomhet_id == 981105516| Virksomhet_id == 974760673|
+            Virksomhet_id == 971022264| Virksomhet_id == 974761335| Virksomhet_id == 972417807|
+            Virksomhet_id == 983887457| Virksomhet_id == 970205039| Virksomhet_id == 972417882|
+            Virksomhet_id == 881143712| Virksomhet_id == 972417793| Virksomhet_id == 972417858|
+            Virksomhet_id == 961181399) 
+
+
+# Selecting relevant variables
+dta2 <- dta2 %>%
+  dplyr::select(År, Post_type, Virksomhet, Virksomhet_id, Kontoklasse_id, Kontogruppe_id, Artskonto_id, Beløp)
+
+
+# Mutating the public expenditures into 2020-prices using 
+# Statistics Norway's (SSB) Consumer Price Index (CPI).
+data <- dta2 %>% 
+  mutate(CPI = case_when(År == 2020 ~ Beløp, År==2019 ~ Beløp*1.01,
+                          År == 2018 ~ Beløp*1.04, År == 2017 ~ Beløp*1.06,
+                          År == 2016 ~ Beløp*1.08, År == 2015 ~ Beløp*1.12,  
+                          År == 2014 ~ Beløp*1.15))
+
+
+
+########################################
+#### Creating variables of interest ####
+########################################
+
+###  Independent variable: Organizational development  ###
+
+# Summarizing expenses related to outsourcing of organizational development 
+# per agency and year. The numbering of organizational development
+# changed in 2019. As such, the account groups needs to be summarised
+# before and after 2019 separately. 
+dta3 <- data %>%
+  filter(År >= 2019, Artskonto_id == 672) %>%
+  group_by(Virksomhet, År, Virksomhet_id) %>%
+  summarise(org = sum(CPI))
+
+dta4 <- data %>%
+  filter(År <= 2018, Artskonto_id == 673)%>%
+  group_by(Virksomhet, År, Virksomhet_id)%>%
+  summarise(org = sum(CPI))
+
+# Merging the pre and post 2019 figures.
+dta5 <- bind_rows(dta3, dta4)
+
+
+###  Independent variable: IT-support  ###
+
+# Summarizing expenses related to outsourcing of IT-support
+# per agency angency and year. Similar to the organizational development
+# variable above, IT-support also changed its numbering in 2019. 
+# As such, the account groups needs to be summarised before and after
+# 2019 separately. 
+dta3 <- data %>%
+  filter(År <= 2018, Artskonto_id == 672)%>%
+  group_by(Virksomhet, År, Virksomhet_id)%>%
+  summarise(it_run = sum(CPI))
+
+dta4 <- data %>%
+  filter(År >= 2019, Artskonto_id == 675)%>%
+  group_by(Virksomhet, År, Virksomhet_id)%>%
+  summarise(it_run = sum(CPI))
+
+# Merging the pre and post 2019 figures. 
+dta6 <- bind_rows(dta3, dta4)
+
+###  Dependent variable: Running costs ###
+
+# Summarizing agencies running costs by agency and year. 
+dta3 <- data %>%
+  filter(Kontogruppe_id != 67, Post_type == "Utgifter til drift")%>%
+  group_by(Virksomhet, År, Virksomhet_id)%>%
+  summarise(driftsutgifter = sum(CPI))
+
+
+###  Independent variable: Accounting, audits and judicial services  ###
+
+# Summarising costs related to outsourcing of accounting, audits and judicial 
+# services by agency and year
+dta4 <- data %>%
+  filter(Artskonto_id == 670) %>%
+  group_by(Virksomhet, År, Virksomhet_id)%>%
+  summarise(finance = sum(CPI))
+
+
+###  Independent variable: IT/software development  ###
+
+# Summarising costs related to outsourcing of IT/software development
+# services by agency and year
+dta7 <- data %>%
+  filter(Artskonto_id == 671)%>%
+  group_by(Virksomhet, År, Virksomhet_id) %>%
+  summarise(IT = sum(CPI))
+
+
+# Merging the newly created variables into one dataset named "data2"
+data2 <- full_join(dta5, dta6, by = c("År", "Virksomhet_id", "Virksomhet"))
+data2 <- full_join(data2, dta4, by = c("År", "Virksomhet_id", "Virksomhet"))
+data2 <- full_join(data2, dta7, by = c("År", "Virksomhet_id", "Virksomhet"))
+data2 <- left_join(data2, dta3, by = c("År", "Virksomhet_id", "Virksomhet"))
+
+
+# Recoding no spendings on outsourcing from NA to 0
+data2 <- data2 %>%
+  mutate(finance = if_else(is.na(finance), 0, finance))%>%
+  mutate(IT = if_else(is.na(IT), 0, IT))%>%
+  mutate(org = if_else(is.na(org), 0, org))%>%
+  mutate(it_run = if_else(is.na(it_run), 0, it_run))
+
+
+# Creating an additive index containing all types of administrative expenses outsourced 
+data2$outsourcing <- data2$it_run + data2$finance + data2$IT + data2$org
+
+# Merging "data2" with the dataset containing the control variables and number of employees
+data2 <- left_join(data2, ansatte, by = c("År", "Virksomhet_id"))
+
+# Selecting the variables of interest and renaming "Virksomhet.x" into "Virksomhet". 
+data2 <- data2 %>%
+  dplyr::select(År, Virksomhet.x, Virksomhet_id, driftsutgifter, finance, IT, org, it_run, Årsverk, outsourcing, 
+                 Departement, Virksomhet_type, GDP_per_capita, gdp_per_capita, Unemployment_rate, Andel_mandater)%>%
+  dplyr:: rename(Virksomhet = Virksomhet.x)
+
+# Spefying that the variables are numeric
+data2$Unemployment_rate <- as.numeric(data2$Unemployment_rate)
+data2$GDP_per_capita <- as.numeric(data2$GDP_per_capita)
+data2$Andel_mandater <- as.numeric(data2$Andel_mandater)
+data2$Årsverk <- as.numeric(data2$Årsverk)
+data2$gdp_per_capita <- as.numeric(data2$gdp_per_capita)
+
+
+# Mutating gdp per capita into 2020-prices using 
+# SSB's Consumer Price Index.  
+data2 <- data2 %>% 
+  mutate(gdp_per_capita2 = case_when(År == 2020 ~ gdp_per_capita, År==2019 ~ gdp_per_capita*1.01,
+                                      År == 2018 ~ gdp_per_capita*1.04, År == 2017 ~ gdp_per_capita*1.06,
+                                      År == 2016 ~ gdp_per_capita*1.08, År == 2015 ~ gdp_per_capita*1.12,  
+                                      År == 2014 ~ gdp_per_capita*1.15))
+
+# Creating relative costs: 
+# Money spent on outsourcing as a percentage of agencies total running costs, and
+# running costs divided by the number of employees. 
+data2 <- data2 %>%
+  mutate(finance2 = (finance/driftsutgifter)*100)%>%
+  mutate(IT2 = (IT/driftsutgifter)*100)%>%
+  mutate(driftsutgifter2 = (driftsutgifter/Årsverk))%>%
+  mutate(org2 = (org/driftsutgifter)*100)%>%
+  mutate(it_run2 = (it_run/driftsutgifter)*100)%>%
+  mutate(outsourcing2 = (outsourcing/driftsutgifter)*100)
+
+# Creating a dummy variable distinguishing between agencies with 
+# more/less employees than the median. 
+data2 <- data2 %>%
+  mutate(årsverk_dummy = if_else(Årsverk >= median(Årsverk, na.rm = T), 1, 0))%>%
+  rename(Aarsverk = Årsverk)
+
+# Creating a new dataset named "data3", in which all missing observations are removed.
+data3 <- data2 %>%
+  na.omit()
+
+# Creating new, lagged dependent and independent variables. 
+data3 <- data3 %>% 
+  arrange(Virksomhet_id, År)%>%
+  group_by(Virksomhet_id) %>%
+  mutate(lag = dplyr::lag(driftsutgifter2, k = 1, order_by = Virksomhet_id),
+         lag_fin = dplyr::lag(finance2, k = 1, order_by = Virksomhet_id),
+         lag_org = dplyr::lag(org2, k = 1, order_by = Virksomhet_id),
+         lag_IT = dplyr::lag(IT2, k = 1, order_by = Virksomhet_id),
+         lag_it = dplyr::lag(it_run2, k = 1, order_by = Virksomhet_id))
+
+
+
+############################
+####                    ####
+####   Data analysis    ####
+####                    ####
+############################
+
+##################################
+####  Descriptive statistics  ####
+##################################
+
+# Creating new variables aimed at illustrating the average levels of outsourcing, 
+# running costs and employees per year in the time period 2014-2020. 
+by_year <- data2 %>%
+  group_by(År)%>%
+  summarise(outsourcing_mean = mean(outsourcing2, na.rm = T),
+            driftsutgifter2_mean = mean(driftsutgifter2, na.rm = T),
+            driftsutgifter_mean = mean(driftsutgifter, na.rm = T),
+            Aarsverk_mean = mean(Aarsverk, na.rm = T))
+
+
+# Figure 1: Illustrating the average levels of running costs over time.  
+ggplot(by_year, aes(x = År, y = driftsutgifter_mean))+
+  geom_line(color = "steelblue2")+
+  geom_point(color = "steelblue")+
+  theme_bw()+
+  labs(x = "", y = "", title = "Running costs",
+       caption = "Figure 1: Agencies average running costs (2014-2020)")+
+  ylim(650000000, 820000000)
+
+
+# Figure 2: Illustrating the average running costs per employee over time. 
+ggplot(by_year, aes(x = År, y = driftsutgifter2_mean))+
+  geom_line(color = "steelblue2")+
+  geom_point(color = "steelblue")+
+ ylim(800000,1000000)+
+  labs(x = "", y = "", title = "Running costs per employee",
+       caption = "Figure 2: Agencies average running costs per employee (2014-2020)")+
+  theme_bw()
+
+
+# Figure 3: Illustrating the average levels of outsourcing over time. 
+ggplot(data = by_year,
+       aes(x = År, y = outsourcing_mean))+
+  geom_line(color = "steelblue2")+
+  geom_point(color = "steelblue")+
+  labs(title = "Level of outsourcing", 
+       x = "",
+       y = "Outsourcing (%)",
+       caption = "Figure 3: Agencies average level of outsourcing (2014-2020)")+
+  theme_bw()+
+  ylim(0, 40)
+
+
+# Figure 5: Illustrating agencies average number of employees over time. 
+ggplot(by_year, aes(x = År, y = Aarsverk_mean))+
+  geom_line(color = "steelblue2")+
+  geom_point(color = "steelblue")+
+  ylim(800,1200)+
+  labs(x = "", y = "Employees", title = "Number of employees",
+       caption = "Figure 4: Agencies average number of employees (2014-2020)")+
+  theme_bw()
+
+
+####  Outsourcing by type of agency  ####
+
+# Figure 5: Illustration of the degree to which directorates and 
+# ministries outsource its services
+ggplot(data2, aes(y = outsourcing2, x = År, color = Virksomhet_type))+
+  geom_point()+
+  theme_bw()+
+  facet_wrap(vars(Virksomhet_type))+
+  scale_color_brewer(palette = "Paired")+
+  labs(x = "", y = "Outsourcing %")+
+  theme(legend.position = "none")
+
+
+# Figure 6: Illustration of the degree to which different ministries and its underlying 
+# units outsource its services
+ggplot(data = data2, aes(x = reorder(Departement, outsourcing2), y = outsourcing2, color = Departement))+
+  geom_boxplot()+
+  theme_bw()+
+  labs(x="",y="Outsourcing %",caption="Figure 6: Degree of outsourcing by Ministry")+
+  theme(legend.position = "none")
+
+
+# Certain variables are named differently in different years, which confuses
+# R into thinking it is two separate organizations. Consequently, I recode the 
+# names using ifelse to make the names identical. 
+data2 <- data2 %>%
+  mutate(Virksomhet = ifelse(test = Virksomhet == "Direktoratet for e-helse", 
+                              yes = "Direktoratet for E-helse", 
+                              no = Virksomhet),
+         Virksomhet = ifelse(test = Virksomhet == "Integrerings- og mangfoldsdirektoratet (IMDi)",
+                             yes = "Integrerings- og mangfoldsdirektoratet",
+                             no = Virksomhet))
+
+
+# Filtering out central administrative organizations that 
+# outsource more than 20 per cent of its services.
+Virksomhet_max <- data2 %>%
+  group_by(Virksomhet_id, Virksomhet)%>%
+  summarise(outsourcing_mean = mean(outsourcing2, na.rm = T))%>%
+  filter(outsourcing_mean > 20)
+
+
+# Figure 7: Illustrating which agencies outsource more than 20 per cent of its services. 
+ggplot(data = Virksomhet_max, aes(y = reorder(Virksomhet, outsourcing_mean), x = outsourcing_mean))+
+  geom_point(aes(color = Virksomhet))+
+  theme_bw()+
+  labs(x = "Outsourcing %", y = "", caption = "Figure 7: Agencies with the highest level of outsourcing")+
+  theme(legend.position = "none")
+
+
+### Outsourcing by type of service ###
+
+# Summarising the level of outsourcing by type of service
+outsourcing_type <- data2 %>%
+  group_by(År)%>%
+  summarise(it_run_mean = mean(it_run2, na.rm = T), # IT-support
+            it_mean = mean(IT2, na.rm = T), # IT/software development
+            finance_mean = mean(finance2, na.rm = T), # Accounting, audits, law
+            org_mean = mean(org2, na.rm = T)) # Organizational development
+
+
+# Figure 8: Illustrating the average levels of outsourcing 
+# IT/software development services over time
+ggplot(data = outsourcing_type, aes(x = År, y = it_mean))+
+  geom_point(color = "steelblue")+
+  geom_line(color = "steelblue2")+
+  ylim(0,15)+
+  labs(x = "", 
+       y = "IT services (%)", 
+       title = "IT services",
+       caption = "Figure 8: Outsourcing of IT/software development")+
+  theme_bw()
+
+
+# Figure 9: Illustrating the average levels of outsourcing 
+# IT-support services over time. 
+ggplot(data = outsourcing_type, aes(x = År, y = it_run_mean))+
+  geom_point(color = "steelblue")+
+  geom_line(color = "steelblue2")+
+  labs(x = "", y = "Routine IT-support (%)", 
+       title = "Routine IT-support",
+       caption = "Figure 9: Outsourcing of routine IT-support")+
+  ylim(0, 15)+
+  theme_bw()
+
+
+# Figure 10: Illustrating the average levels of outsourcing 
+# organizational development over time.
+ggplot(data = outsourcing_type, aes(x = År, y = org_mean))+
+  geom_point(color = "steelblue")+
+  geom_line(color = "steelblue2")+
+  ylim(0, 5)+
+  labs(x = "", 
+       y = "Organisational services (%)",
+       title = "Organisational services",
+       caption = "Figure 10: Outsourcing of organizational services")+
+  theme_bw()
+
+
+# Figure 11: Illustrating the average levels of outsourcing 
+# accounting, audits and judicial services over time. 
+ggplot(data = outsourcing_type, aes(x = År, y = finance_mean))+
+  geom_point(color = "steelblue")+
+  geom_line(color = "steelblue2")+
+  ylim(0, 5)+
+  labs(x = "", y = "Routine tasks (%)", title = "Routine tasks",
+       caption = "Figure 11: Outsourcing of routine services")+
+  theme_bw()
+            
+
+###############################
+####     Main findings     ####
+###############################
+
+###  The economic effects of outsourcing administrative services  ###
+
+
+####   TABLE 1   ####
+
+# Pooled OLS model
+pooled_ols1 <- lm(driftsutgifter2 ~ 
+                    outsourcing2+ 
+                    årsverk_dummy+
+                    Aarsverk+
+                    gdp_per_capita2 +
+                    Unemployment_rate + 
+                    Andel_mandater,
+                  data3)
+
+# Clustering the standard errors by agency
+pooled_ols1$clusteredVCOV <- cluster.vcov(pooled_ols1,
+                                          cluster = data3$Virksomhet_id)
+
+
+# Dynamic panel model
+dynamic1 <- lm(driftsutgifter2 ~ 
+                 outsourcing2+
+                 årsverk_dummy+
+                 Aarsverk+
+                 gdp_per_capita2 +
+                 Unemployment_rate + 
+                 Andel_mandater+
+                 lag,# Lagged dependent variable
+               data3)
+
+# Clustering the standard errors by agency
+dynamic1$clusteredVCOV <- cluster.vcov(dynamic1,
+                                       cluster = data3$Virksomhet_id)
+
+# Fixed effects model 
+FE1 <- lm(driftsutgifter2 ~ 
+            outsourcing2 +
+            årsverk_dummy+
+            Aarsverk +
+            gdp_per_capita2 + 
+            Unemployment_rate + 
+            as.factor(Virksomhet_id)+ # Fixed effects
+            Andel_mandater,
+          data = data3)
+
+# Clustering the standard errors by agency
+FE1$clusteredVCOV <- cluster.vcov(FE1,
+                                  cluster = data3$Virksomhet_id)
+
+
+# Time fixed effects model
+TFE1 <- lm(driftsutgifter2 ~ 
+             outsourcing2+
+             as.factor(Virksomhet_id)+ # fixed effects
+             as.factor(År)+ # time fixed effects
+             årsverk_dummy+
+             Aarsverk,
+           data = data3)
+
+# Clustering the standard errors by agency
+TFE1$clusteredVCOV <- cluster.vcov(TFE1,
+                                   cluster = data3$Virksomhet_id)
+
+
+# Presenting the findings in table 1
+stargazer::stargazer(pooled_ols1, dynamic1, FE1, TFE1, 
+                     se = list(sqrt(diag(pooled_ols1$clusteredVCOV)),
+                               sqrt(diag(dynamic1$clusteredVCOV)),
+                               sqrt(diag(FE1$clusteredVCOV)),
+                               sqrt(diag(TFE1$clusteredVCOV))),
+                     type = "text", omit = c("Virksomhet_id", "År"),
+                     font.size = "footnotesize",
+                     header = FALSE,
+                     title = "The economic effects of outsourcing administrative services",
+                     column.labels = c("Pooled OLS", "Dynamic panel model", "Fixed effects", "Time fixed effects"),
+                     dep.var.labels = "Variable running costs",
+                     covariate.labels = c("Outsourcing",
+                                          "Size dummy", 
+                                          "Size",
+                                          "GDP per capita",
+                                          "Unemployment rate",
+                                          "Parliamentary seats",
+                                          "Lag"),
+                     digits = 1)
+
+
+
+
+####   TABLE 2    ####
+## The economic effects of outsourcing different types of services  ##
+
+pooled_ols <- lm(driftsutgifter2 ~
+                   finance2 + 
+                   it_run2+
+                   IT2+
+                   org2+
+                   Aarsverk+
+                   årsverk_dummy+
+                   Andel_mandater+
+                   gdp_per_capita2+
+                   Unemployment_rate,
+                 data3)
+
+# Clustering the standard errors by agency
+pooled_ols$clusteredVCOV <- cluster.vcov(pooled_ols,
+                                 cluster = data3$Virksomhet_id)
+
+# Fixed effects model
+fe <- lm(driftsutgifter2 ~
+           finance2 + 
+           it_run2+
+           IT2+
+           org2+
+           Aarsverk+
+          årsverk_dummy+
+           Andel_mandater+
+           gdp_per_capita2+
+           Unemployment_rate+
+           as.factor(Virksomhet_id), # Agency fixed effects
+         data3)
+
+# Clustering the standard errors by agency
+fe$clusteredVCOV <- cluster.vcov(fe,
+                                 cluster = data3$Virksomhet_id)
+
+
+# Time fixed effects model
+tfe <- lm(driftsutgifter2~
+            finance2 +
+            it_run2 +
+            IT2+
+            org2+
+            Aarsverk+
+            årsverk_dummy+
+            as.factor(Virksomhet_id)+ # Agency fixed effects
+            as.factor(År), # Time fixed effects
+          data3)
+
+# Clustering the standard errors by agency
+tfe$clusteredVCOV <- cluster.vcov(tfe,
+                                  cluster = data3$Virksomhet_id)
+
+# Dynamic panel model
+dynamic<- lm(driftsutgifter2 ~
+               finance2 + 
+               it_run2+
+               IT2+
+               org2+
+               Aarsverk+
+               årsverk_dummy+
+               Andel_mandater+
+               gdp_per_capita2+
+               Unemployment_rate+
+               lag, # Lagged dependent variable
+             data3)
+
+# Clustering the standard errors by state
+dynamic$clusteredVCOV <- cluster.vcov(dynamic,
+                                      cluster = data3$Virksomhet_id)
+
+
+#  Presenting the findings in table 2 
+stargazer::stargazer(pooled_ols, dynamic, fe, tfe,
+                     se = list(sqrt(diag(pooled_ols$clusteredVCOV)),
+                               sqrt(diag(dynamic$clusteredVCOV)),
+                               sqrt(diag(fe$clusteredVCOV)),
+                               sqrt(diag(tfe$clusteredVCOV))),
+                     type = "text", 
+                     header = FALSE,
+                     omit = c("Virksomhet_id", "År"),
+                     font.size = "footnotesize",
+                     title = "The economic effect of outsourcing administrative services",
+                     column.labels = c("Pooled OLS","Dynamic", "Fixed effects", "Time fixed effects"),
+                     dep.var.caption = "Dependent variable: Running costs",
+                     dep.var.labels = "",
+                     covariate.labels = c("Accounting, auditing and law",
+                                          "IT-support",
+                                         "IT development",
+                                        "Organizational development",
+                                       "Size",
+                                      "Size dummy",
+                                     "Parliamentary seats",
+                                    "GDP per capita",
+                                   "Unemployment rate",
+                                  "Lag"),
+                     digits = 1)
+
+
+
+### Heterogeneities in the findings ###
+
+# Adding an interaction effect between agency size and accounting, audits and judicial services
+# in the fixed effects model.
+tfe_pred2 <- lm(driftsutgifter2~
+                  finance2*årsverk_dummy +
+                  it_run2 +
+                  IT2+
+                  org2+
+                  as.factor(Virksomhet_id)+
+                  gdp_per_capita2+
+                  Andel_mandater+
+                  Unemployment_rate,
+                data3)
+
+# Clustering the standard errors by agency
+tfe_pred2$clusteredVCOV <- cluster.vcov(tfe_pred2,
+                                        cluster = data3$Virksomhet_id)
+
+
+# Presenting the interaction effect in a stargazer-table
+stargazer(tfe_pred2, type = "text",
+          se = list(sqrt(diag(tfe_pred2$clusteredVCOV))),
+          omit = "Virksomhet_id")
+
+
+#############################################
+#### Illustrating the interaction effect ####
+#############################################
+
+# Creating a sequence from the minimal level of outsourcing accounting, audits and judicial services
+# to the maximum. (This will be plotted). 
+xrange <- seq(min(data3$finance2, na.rm = T), max(data3$finance2, na.rm = T), lenght.out = 564)
+
+names(coefficients(tfe_pred2))
+
+# Creating a scenario which illustrates the effect of outsourcing accounting, audits and judicial 
+# services in small central administrative agencies (i.e., with less than 220 employees).
+small <- data.frame(1, # Intercept
+                    finance2 = xrange,
+                    årsverk_dummy = 0,
+                    it_run2 = mean(data3$it_run2, na.rm = T),
+                    IT2 = mean(data3$IT2, na.rm = T), 
+                    org2 = mean(data3$org2, na.rm = T),
+                    Virksomhet_id =	874761192,
+                    gdp_per_capita2 = mean(data3$gdp_per_capita2, na.rm = T),
+                    Andel_mandater = mean(data3$Andel_mandater, na.rm = T),
+                    Unemployment_rate = mean(data3$Unemployment_rate), na.rm = T)
+
+# Creating a scenario which illustrates the effect of outsourcing accounting, audits and judicial
+# services in large central administrative agencies (i.e., with more than 220 employees).
+large <- data.frame(1, # Intercept
+                    finance2 = xrange,
+                    årsverk_dummy = 1,
+                    it_run2 = mean(data2$it_run2, na.rm = T),
+                    IT2 = mean(data2$IT2, na.rm = T), 
+                    org2 = mean(data2$org2, na.rm = T),
+                    Virksomhet_id =	889640782,
+                    gdp_per_capita2 = mean(data2$gdp_per_capita2, na.rm = T),
+                    Andel_mandater = mean(data2$Andel_mandater, na.rm = T),
+                    Unemployment_rate = mean(data2$Unemployment_rate), na.rm = T)
+
+
+# Predicting the effect of scenario 1
+pred <- predict(object = tfe_pred2, newdata = small, interval = "confidence") 
+small <- cbind(small, pred)
+
+# Predicting the effect of scenario 2
+pred2 <- predict(object = tfe_pred2, newdata = large, interval = "confidence")
+large <- cbind(large, pred2)
+
+
+# Figure 12: Illustrating the predicted running costs when small agencies outsource 
+# accounting, audits and judicial services. 
+ggplot(small, 
+       aes(x = xrange, 
+           y = fit, 
+           ymin = lwr, 
+           ymax = upr)) +
+  geom_line(color = "steelblue")+
+  geom_ribbon(alpha = 0.4, fill = "steelblue2")+
+  theme_bw()+
+   ylim(450000,950000)+
+  labs(x = "", 
+       title = "Small agencies",
+       y = "Predicted running costs",
+       caption = "Figure 11: Predicted running costs for small agencies.")
+
+# Figure 13: Illustrating the predicted running costs when large agencies outsource
+# accounting, audits and judicial services. 
+ggplot(large, 
+       aes(x = xrange, 
+           y = fit, 
+           ymin = lwr, 
+           ymax = upr)) +
+  geom_line(color = "steelblue")+
+  geom_ribbon(alpha = 0.4, fill = "steelblue2")+
+  ylim(450000,950000)+
+  theme_bw()+
+  labs(x = "", 
+       title = "Large agencies",
+       y = "Predicted running costs",
+       caption = "Figure 13: Predicted running costs for large agencies.")
+
+
+###################################
+####  Statistical validity ####
+###################################
+
+####  Model fit  ####
+
+# Figure 15: Histogram illustrating the distribution of the observed running costs.  
+ggplot(data2, aes(x = driftsutgifter2))+
+  geom_histogram(bins = 100, fill = "steelblue")+
+  xlim(400000, 2000000)+
+  ylim(0,40)+
+  labs(x = "Observed running costs",
+       y = "Frequency",
+       title = "Observed values",
+       caption= "Figure 15: Observed running costs per employee.")+
+  theme_bw()
+
+# Figure 16: Histogram illustrating the distribution of the predicted running costs.
+ggplot(tfe, aes(x = .fitted))+
+  geom_histogram(bins = 100, fill = "steelblue2")+
+  theme_bw()+
+  ylim(0,40)+
+  xlim(400000,2000000)+
+  labs(x = "Predicted running costs",
+       y = "Frequency",
+       title = "Predicted values",
+       caption = "Figure 16: Predicted running costs per employee.")
+
+
+# Figure 17: Illustration of the distribution of residuals around the predicted
+# running costs
+ggplot(tfe, aes(x = .fitted, y = .resid)) + geom_point(color = "steelblue2", alpha = 0.6)+
+  geom_hline(aes(yintercept = 0), color = "steelblue4", lty = 2)+
+  theme_bw()+
+  ylim(-400000, 400000)+
+  labs(x = "Predicted running costs", y = "Residuals",
+       caption = "Figure 17: Distribution of residuals around the predicted values.")
+
+
+
+####  Time delayed effect  ####
+
+lagged <- lm(driftsutgifter2~
+               lag_fin + 
+               lag_it + 
+               lag_IT +
+               lag_org +
+               as.factor(Virksomhet_id)+
+               as.factor(År)+
+               årsverk_dummy + 
+               Aarsverk, 
+             data3)
+
+# Clustering the standard errors by agency
+lagged$clusteredVCOV <- cluster.vcov(lagged,
+                                     cluster = data3$Virksomhet_id)
+
+
+# Evaluating the robustness of the results by comparing the time delayed effect 
+# to the fixed effects model.
+stargazer::stargazer(fe,lagged,
+                     se = list(sqrt(diag(fe$clusteredVCOV)),
+                               sqrt(diag(lagged$clusteredVCOV))),
+                     type = "text", 
+                     header = FALSE,
+                     omit = c("Virksomhet_id", "År", "Aarsverk", "årsverk_dummy", "Andel_mandater", "gdp_per_capita2", "Unemployment_rate"),
+                     font.size = "footnotesize",
+                     title = "The economic effect of outsourcing",
+                     column.labels = c("Time fixed effect", "Time delayed effect"),
+                     dep.var.labels = "",
+                     dep.var.caption = "Dependent variable: Running costs",
+                     covariate.labels = c("Accounting, auditing, law",
+                                          "IT-support",
+                                          "IT development",
+                                          "Organizational development",
+                                          "Accounting, auditing and law",
+                                          "IT-support",
+                                          "IT/software development",
+                                          "Organizational development"),
+                     digits = 1)
+
+
+####   Curvelinearity  ####
+
+# Adding squared terms to the independent variables
+data3$itsqrt <- data3$IT2^2
+data3$itrunsqrt <- data3$it_run2^2
+data3$financesqrt <- data3$finance2^2
+data3$orgsqrt <- data3$org2^2
+
+# Creating a fixed effects model that accounts for curvilinearity
+curve <- lm(driftsutgifter2 ~
+              finance2+
+              financesqrt+
+              it_run2+
+              itrunsqrt+
+              IT2+
+              itsqrt+
+              org2+
+              orgsqrt+
+              Aarsverk+
+              as.factor(Virksomhet_id)+
+              årsverk_dummy+
+              gdp_per_capita2+
+              Andel_mandater+
+              Unemployment_rate,
+            data3)
+
+# Clustering the standard errors by agency
+curve$clusteredVCOV <- cluster.vcov(curve,
+                                    cluster = data3$Virksomhet_id)
+
+# Evaluating the robustness of the results by comparing the curved model 
+# to the fixed effects model.
+stargazer::stargazer(fe, curve, 
+                     se = list(sqrt(diag(fe$clusteredVCOV)),
+                       sqrt(diag(curve$clusteredVCOV))),
+                     type = "text",
+                     omit =  "Virksomhet_id")
+
+
+#### Sensitivity towards outliers ####
+
+# Identifying influential outliers using the Bonferroni t-test,
+outlierTest(fe)
+
+# Removing influential outliers
+data5 <- data2 %>%
+  filter(Virksomhet_id != 974446871|År != 2019, # Nasjonal kommunikasjonsmyndighet
+         Virksomhet_id != 974760886|År != 2020, # Medietilsynet
+         Virksomhet_id != 972417882|År != 2016, # Klima- og miljødepartementet
+         Virksomhet_id != 985165262|År != 2020, # Nasjonal kommunikasjonsmyndighet
+         Virksomhet_id != 972417920|År != 2014) # UD
+         
+# Estimating a new model without the influential outliers
+outlier <- lm(driftsutgifter2~
+            finance2 +
+            it_run2 +
+            IT2+
+            org2+
+            Aarsverk+
+            årsverk_dummy+
+            as.factor(Virksomhet_id)+
+            as.factor(År),
+          data5)
+
+outlier$clusteredVCOV <- cluster.vcov(outlier,
+                                  cluster = data5$Virksomhet_id)
+
+# Evaluating the robustness of the results by comparing the fixed effects model
+# with a model without influential outliers
+stargazer::stargazer(fe, outlier, 
+                     se = list(sqrt(diag(tfe$clusteredVCOV)),
+                       sqrt(diag(outlier$clusteredVCOV))),
+                     type = "text", 
+                     header = FALSE,
+                     omit = c("Virksomhet_id", "År", "Aarsverk", "årsverk_dummy", "Andel_mandater", "gdp_per_capita2", "Unemployment_rate"),
+                     font.size = "footnotesize",
+                     title = "The economic effect of outsourcing administrative services",
+                     column.labels = c("Pooled OLS", "Fixed effects", "Time fixed effects", "Outliers"),
+                     dep.var.caption = "Dependent variable: Running costs",
+                     dep.var.labels = "",
+                     covariate.labels = c("Accounting, auditing and law",
+                                          "IT-support",
+                                          "IT/software development",
+                                          "Organizational development"),
+                     digits = 1)
